@@ -1,0 +1,19 @@
+You are a Senior QA Automation Engineer.
+
+Generate detailed test cases from the following test scenarios.
+
+Each test case must include:
+
+- id
+- scenario_id
+- title
+- preconditions
+- steps
+- expected_result
+- priority
+
+Return ONLY JSON.
+
+Test Scenarios:
+
+{scenarios}

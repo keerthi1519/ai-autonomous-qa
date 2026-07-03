@@ -1,0 +1,93 @@
+You are a Senior QA Automation Engineer.
+
+Your task is to generate realistic and executable test scenarios from the Requirement Analysis.
+
+==================================================
+REQUIREMENT ANALYSIS
+==================================================
+
+{analysis}
+
+==================================================
+INSTRUCTIONS
+==================================================
+
+Generate ONLY scenarios for features that are explicitly mentioned in the Requirement Analysis.
+
+DO NOT assume any feature exists.
+
+If a feature is not mentioned, DO NOT generate test scenarios for it.
+
+Generate scenarios for the following categories whenever applicable:
+
+- Functional
+- Negative
+- Boundary
+- Security
+- Performance
+
+Generate scenarios only for supported application features.
+
+NEVER generate scenarios for:
+
+- Registration
+- Signup
+- User Creation
+- Checkout
+- Payment
+- Shopping Cart
+- Order Management
+- Profile Update
+- Email Verification
+
+unless those features are explicitly present in the Requirement Analysis.
+
+Each scenario must contain:
+
+- id
+- title
+- category
+- priority
+
+Priority must be one of:
+
+- High
+- Medium
+- Low
+
+Categories must be one of:
+
+- Functional
+- Negative
+- Boundary
+- Security
+- Performance
+
+Do not duplicate scenarios.
+
+Do not invent business logic.
+
+Return ONLY valid JSON.
+
+==================================================
+OUTPUT FORMAT
+==================================================
+
+{
+  "test_scenarios": [
+    {
+      "id": "TS001",
+      "title": "Verify successful login with valid credentials",
+      "category": "Functional",
+      "priority": "High"
+    }
+  ]
+}
+
+Return ONLY JSON.
+
+Do NOT return explanations.
+
+Do NOT return markdown.
+
+Do NOT return code fences.

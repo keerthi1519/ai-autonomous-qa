@@ -1,0 +1,13 @@
+Project: User Authentication System
+
+Functional Requirements:
+1. The user should be able to login using email and password.
+2. The user should be able to logout.
+3. Forgot password should send an OTP to the registered email.
+4. Users should be able to reset their password.
+
+Non-Functional Requirements:
+1. Passwords must be encrypted.
+2. Login should complete within 2 seconds.
+3. The application should support 5000 concurrent users.
+4. The application should be available 99.9% of the time.
