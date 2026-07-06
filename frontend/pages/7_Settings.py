@@ -1,68 +1,74 @@
-from pathlib import Path
+import requests
+import streamlit as st
 
-from dotenv import load_dotenv
-from pydantic_settings import BaseSettings
+from config import BACKEND_URL
 
-# ---------------------------------------------------
-# Load Environment Variables
-# ---------------------------------------------------
+st.set_page_config(
+    page_title="Settings",
+    page_icon="⚙️",
+    layout="wide"
+)
 
-BASE_DIR = Path(__file__).resolve().parent.parent.parent
+st.title("⚙️ Settings")
 
-load_dotenv(BASE_DIR / ".env")
+st.divider()
 
+# --------------------------------------------------
+# Backend connection
+# --------------------------------------------------
 
-class Settings(BaseSettings):
+st.subheader("🔌 Backend Connection")
 
-    # ---------------------------------------------------
-    # AI Configuration
-    # ---------------------------------------------------
+st.write("Backend URL (set via the `BACKEND_URL` environment variable):")
+st.code(BACKEND_URL)
 
-    GROQ_API_KEY: str
+if st.button("Test Connection", use_container_width=True):
+    try:
+        response = requests.get(BACKEND_URL, timeout=5)
+        response.raise_for_status()
+        st.success("🟢 Backend is reachable.")
+        st.json(response.json())
+    except requests.exceptions.RequestException as e:
+        st.error("🔴 Backend is not reachable.")
+        st.caption(str(e))
 
-    MODEL_NAME: str = "llama-3.3-70b-versatile"
+st.divider()
 
-    # ---------------------------------------------------
-    # Application
-    # ---------------------------------------------------
+# --------------------------------------------------
+# Session data
+# --------------------------------------------------
 
-    APP_NAME: str = "AI Autonomous QA Engineer"
+st.subheader("🗂 Session Data")
 
-    APP_VERSION: str = "1.0.0"
+st.write(
+    "The pipeline stores intermediate results (analysis, scenarios, "
+    "test cases, scripts) in this browser session."
+)
 
-    DEBUG: bool = True
+pipeline_keys = [
+    "analysis",
+    "analysis_data",
+    "application_url",
+    "uploaded_file_name",
+    "test_scenarios",
+    "test_cases",
+    "selenium_scripts",
+    "execution_result",
+    "pipeline_started",
+    "current_step",
+]
 
-    # ---------------------------------------------------
-    # Directories
-    # ---------------------------------------------------
+stored = [k for k in pipeline_keys if k in st.session_state]
 
-    UPLOAD_FOLDER: str = "uploads"
+if stored:
+    st.write("Currently stored:")
+    for key in stored:
+        st.write(f"• `{key}`")
+else:
+    st.info("No pipeline data stored yet.")
 
-    GENERATED_TESTS_FOLDER: str = "generated_tests"
-
-    REPORTS_FOLDER: str = "reports"
-
-    PROMPTS_FOLDER: str = "app/prompts"
-
-    # ---------------------------------------------------
-    # Selenium
-    # ---------------------------------------------------
-
-    CHROME_HEADLESS: bool = True
-
-    SELENIUM_TIMEOUT: int = 20
-
-    # ---------------------------------------------------
-    # API
-    # ---------------------------------------------------
-
-    API_PREFIX: str = ""
-
-    class Config:
-
-        env_file = ".env"
-
-        extra = "ignore"
-
-
-settings = Settings()
+if st.button("🧹 Clear Pipeline Data", use_container_width=True):
+    for key in pipeline_keys:
+        st.session_state.pop(key, None)
+    st.success("Session data cleared. Start again from Requirement Analysis.")
+    st.rerun()

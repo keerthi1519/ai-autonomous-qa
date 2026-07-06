@@ -1,6 +1,10 @@
+import time
+
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
 
 
 class DOMAnalyzer:
@@ -13,151 +17,136 @@ class DOMAnalyzer:
         options.add_argument("--headless=new")
         options.add_argument("--no-sandbox")
         options.add_argument("--disable-dev-shm-usage")
+        options.add_argument("--window-size=1920,1080")
 
         driver = webdriver.Chrome(options=options)
 
-        driver.get(application_url)
+        try:
 
-        dom = {
-            "title": driver.title,
-            "url": driver.current_url,
-            "inputs": [],
-            "buttons": [],
-            "links": [],
-            "dropdowns": [],
-            "textareas": [],
-            "checkboxes": [],
-            "radio_buttons": []
-        }
+            driver.get(application_url)
 
-        # -----------------------------
-        # Inputs
-        # -----------------------------
+            # ----------------------------------------
+            # Wait for the page to actually render.
+            # Many apps (React/Vue/Angular SPAs) load an
+            # empty shell first and render via JavaScript,
+            # so scraping immediately returns nothing.
+            # ----------------------------------------
 
-        inputs = driver.find_elements(By.TAG_NAME, "input")
+            WebDriverWait(driver, 20).until(
+                lambda d: d.execute_script(
+                    "return document.readyState"
+                ) == "complete"
+            )
 
-        for element in inputs:
+            try:
+                WebDriverWait(driver, 15).until(
+                    EC.presence_of_element_located((
+                        By.CSS_SELECTOR,
+                        "input, button, a, select, textarea"
+                    ))
+                )
+            except Exception:
+                # Page has no interactive elements or is very
+                # slow — continue with whatever is present.
+                pass
 
-            dom["inputs"].append({
+            # Give client-side frameworks a moment to finish
+            # rendering attribute values (ids, names, etc.).
+            time.sleep(2)
 
-                "id": element.get_attribute("id"),
+            dom = {
+                "title": driver.title,
+                "url": driver.current_url,
+                "inputs": [],
+                "buttons": [],
+                "links": [],
+                "dropdowns": [],
+                "textareas": [],
+                "checkboxes": [],
+                "radio_buttons": []
+            }
 
-                "name": element.get_attribute("name"),
+            # -----------------------------
+            # Inputs
+            # -----------------------------
 
-                "type": element.get_attribute("type"),
+            for element in driver.find_elements(By.TAG_NAME, "input"):
+                dom["inputs"].append({
+                    "id": element.get_attribute("id"),
+                    "name": element.get_attribute("name"),
+                    "type": element.get_attribute("type"),
+                    "placeholder": element.get_attribute("placeholder"),
+                    "class": element.get_attribute("class")
+                })
 
-                "placeholder": element.get_attribute("placeholder"),
+            # -----------------------------
+            # Buttons
+            # -----------------------------
 
-                "class": element.get_attribute("class")
+            for element in driver.find_elements(By.TAG_NAME, "button"):
+                dom["buttons"].append({
+                    "text": element.text,
+                    "id": element.get_attribute("id"),
+                    "class": element.get_attribute("class"),
+                    "type": element.get_attribute("type")
+                })
 
-            })
+            # -----------------------------
+            # Links
+            # -----------------------------
 
-        # -----------------------------
-        # Buttons
-        # -----------------------------
+            for element in driver.find_elements(By.TAG_NAME, "a"):
+                dom["links"].append({
+                    "text": element.text,
+                    "href": element.get_attribute("href")
+                })
 
-        buttons = driver.find_elements(By.TAG_NAME, "button")
+            # -----------------------------
+            # Dropdowns
+            # -----------------------------
 
-        for element in buttons:
+            for element in driver.find_elements(By.TAG_NAME, "select"):
+                dom["dropdowns"].append({
+                    "id": element.get_attribute("id"),
+                    "name": element.get_attribute("name")
+                })
 
-            dom["buttons"].append({
+            # -----------------------------
+            # Textareas
+            # -----------------------------
 
-                "text": element.text,
+            for element in driver.find_elements(By.TAG_NAME, "textarea"):
+                dom["textareas"].append({
+                    "id": element.get_attribute("id"),
+                    "name": element.get_attribute("name")
+                })
 
-                "id": element.get_attribute("id"),
+            # -----------------------------
+            # Checkboxes
+            # -----------------------------
 
-                "class": element.get_attribute("class"),
+            for element in driver.find_elements(
+                By.XPATH, "//input[@type='checkbox']"
+            ):
+                dom["checkboxes"].append({
+                    "id": element.get_attribute("id"),
+                    "name": element.get_attribute("name")
+                })
 
-                "type": element.get_attribute("type")
+            # -----------------------------
+            # Radio Buttons
+            # -----------------------------
 
-            })
+            for element in driver.find_elements(
+                By.XPATH, "//input[@type='radio']"
+            ):
+                dom["radio_buttons"].append({
+                    "id": element.get_attribute("id"),
+                    "name": element.get_attribute("name")
+                })
 
-        # -----------------------------
-        # Links
-        # -----------------------------
+            return dom
 
-        links = driver.find_elements(By.TAG_NAME, "a")
+        finally:
 
-        for element in links:
-
-            dom["links"].append({
-
-                "text": element.text,
-
-                "href": element.get_attribute("href")
-
-            })
-
-        # -----------------------------
-        # Dropdowns
-        # -----------------------------
-
-        selects = driver.find_elements(By.TAG_NAME, "select")
-
-        for element in selects:
-
-            dom["dropdowns"].append({
-
-                "id": element.get_attribute("id"),
-
-                "name": element.get_attribute("name")
-
-            })
-
-        # -----------------------------
-        # Textareas
-        # -----------------------------
-
-        textareas = driver.find_elements(By.TAG_NAME, "textarea")
-
-        for element in textareas:
-
-            dom["textareas"].append({
-
-                "id": element.get_attribute("id"),
-
-                "name": element.get_attribute("name")
-
-            })
-
-        # -----------------------------
-        # Checkboxes
-        # -----------------------------
-
-        checkboxes = driver.find_elements(
-            By.XPATH,
-            "//input[@type='checkbox']"
-        )
-
-        for element in checkboxes:
-
-            dom["checkboxes"].append({
-
-                "id": element.get_attribute("id"),
-
-                "name": element.get_attribute("name")
-
-            })
-
-        # -----------------------------
-        # Radio Buttons
-        # -----------------------------
-
-        radios = driver.find_elements(
-            By.XPATH,
-            "//input[@type='radio']"
-        )
-
-        for element in radios:
-
-            dom["radio_buttons"].append({
-
-                "id": element.get_attribute("id"),
-
-                "name": element.get_attribute("name")
-
-            })
-
-        driver.quit()
-
-        return dom
+            driver.quit()

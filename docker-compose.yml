@@ -17,10 +17,17 @@ services:
       PYTHONUNBUFFERED: "1"
 
     volumes:
-      - .:/app
+      # Shared data only — code is baked into the image.
       - ./uploads:/app/uploads
       - ./generated_tests:/app/generated_tests
       - ./reports:/app/reports
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
 
     restart: unless-stopped
 
@@ -38,11 +45,12 @@ services:
       BACKEND_URL: http://backend:8000
 
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
 
     volumes:
-      - .:/app
-      - ./reports:/app/reports
+      - ./uploads:/app/uploads
       - ./generated_tests:/app/generated_tests
+      - ./reports:/app/reports
 
     restart: unless-stopped

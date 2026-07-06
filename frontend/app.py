@@ -1,5 +1,5 @@
-import streamlit as st
 import requests
+import streamlit as st
 
 from config import BACKEND_URL
 
@@ -10,118 +10,108 @@ st.set_page_config(
 )
 
 st.title("🤖 AI Autonomous QA Engineer")
-st.caption("AI-powered Requirement Analysis & Test Automation")
+st.caption("AI-powered requirement analysis and Selenium test automation")
 
-st.divider()
+# --------------------------------------------------
+# Backend health check
+# --------------------------------------------------
 
-# ----------------------------
-# Sidebar
-# ----------------------------
+def backend_online() -> bool:
+    try:
+        r = requests.get(BACKEND_URL, timeout=5)
+        return r.status_code == 200
+    except requests.exceptions.RequestException:
+        return False
+
+
+online = backend_online()
+
 with st.sidebar:
+    st.header("Backend Status")
+    if online:
+        st.success("🟢 Connected")
+    else:
+        st.error("🔴 Offline")
+    st.caption(BACKEND_URL)
 
-    st.header("Navigation")
-
-    st.success("Backend Status")
-
-    st.write(BACKEND_URL)
-
-# ----------------------------
-# Metrics
-# ----------------------------
-
-col1, col2, col3, col4 = st.columns(4)
-
-col1.metric("Requirements", "0")
-col2.metric("Scenarios", "0")
-col3.metric("Test Cases", "0")
-col4.metric("Scripts", "0")
+if not online:
+    st.error(
+        "Cannot reach the backend. Start it first, then reload this page."
+    )
+    st.code("uvicorn app.main:app --reload   # or: docker compose up")
 
 st.divider()
 
-uploaded_file = st.file_uploader(
-    "📄 Upload Requirement Document",
-    type=["txt", "pdf", "docx"]
+# --------------------------------------------------
+# Pipeline progress
+# --------------------------------------------------
+
+st.subheader("Pipeline Progress")
+
+steps = [
+    ("1. Requirement Analysis", "analysis"),
+    ("2. Test Scenarios", "test_scenarios"),
+    ("3. Test Cases", "test_cases"),
+    ("4. Selenium Scripts", "selenium_scripts"),
+    ("5. Execution", "execution_result"),
+]
+
+cols = st.columns(len(steps))
+
+for col, (label, key) in zip(cols, steps):
+    with col:
+        if key in st.session_state:
+            st.success(f"✅ {label}")
+        else:
+            st.info(f"⬜ {label}")
+
+st.divider()
+
+# --------------------------------------------------
+# Statistics
+# --------------------------------------------------
+
+st.subheader("Statistics")
+
+scenarios = (
+    st.session_state.get("test_scenarios", {})
+    .get("test_scenarios", [])
+)
+cases = (
+    st.session_state.get("test_cases", {})
+    .get("test_cases", [])
+)
+scripts = (
+    st.session_state.get("selenium_scripts", {})
+    .get("scripts", [])
 )
 
-if uploaded_file:
+c1, c2, c3, c4 = st.columns(4)
+c1.metric("Requirement", "✔" if "analysis" in st.session_state else "—")
+c2.metric("Scenarios", len(scenarios))
+c3.metric("Test Cases", len(cases))
+c4.metric("Scripts", len(scripts))
 
-    st.success(f"{uploaded_file.name} uploaded.")
+st.divider()
 
-    if st.button(
-        "🚀 Analyze Requirement",
-        use_container_width=True
-    ):
+# --------------------------------------------------
+# How to use
+# --------------------------------------------------
 
-        files = {
-            "file": (
-                uploaded_file.name,
-                uploaded_file.getvalue()
-            )
-        }
+st.subheader("How to Use")
 
-        with st.spinner("Analyzing Requirement..."):
+st.markdown(
+    """
+**Option A — one click:** open **AI QA Pipeline** in the sidebar,
+upload a requirement document, enter your application URL, and press
+**Run Full Pipeline**.
 
-            try:
+**Option B — step by step:** go through the sidebar pages in order:
 
-                response = requests.post(
-                    f"{BACKEND_URL}/upload",
-                    files=files,
-                    timeout=300
-                )
-
-                response.raise_for_status()
-
-            except requests.exceptions.ConnectionError:
-
-                st.error("❌ Cannot connect to backend.")
-
-                st.info(
-                    f"Backend URL: {BACKEND_URL}"
-                )
-
-                st.stop()
-
-            except requests.exceptions.Timeout:
-
-                st.error(
-                    "Backend request timed out."
-                )
-
-                st.stop()
-
-            except Exception as e:
-
-                st.exception(e)
-
-                st.stop()
-
-        result = response.json()
-
-        tab1, tab2, tab3, tab4 = st.tabs(
-            [
-                "📋 Functional",
-                "⚙ Non Functional",
-                "⚠ Edge Cases",
-                "🚨 Risks"
-            ]
-        )
-
-        with tab1:
-
-            for item in result["analysis"]["functional_requirements"]:
-                st.success(item)
-
-        with tab2:
-
-            for item in result["analysis"]["non_functional_requirements"]:
-                st.info(item)
-
-        with tab3:
-
-            for item in result["analysis"]["edge_cases"]:
-                st.warning(item)
-
-        with tab4:
-
-            for item in result["analysis"]["risks"]:
-                st.error(item)
+1. **Requirement Analysis** — upload the document and set the application URL
+2. **Test Scenarios** — generate scenarios from the analysis
+3. **Test Cases** — turn scenarios into detailed test cases
+4. **Selenium Scripts** — generate runnable pytest + Selenium code
+5. **Execute Tests** — run everything and view the HTML report
+"""
+)

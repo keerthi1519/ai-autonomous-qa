@@ -1,4 +1,5 @@
 import os
+
 import requests
 import streamlit as st
 import streamlit.components.v1 as components
@@ -20,173 +21,140 @@ st.title("🧪 Execute Selenium Tests")
 # --------------------------------------------------
 
 if "selenium_scripts" not in st.session_state:
-
     st.error("❌ Selenium Scripts not found.")
-
     st.info("Please generate Selenium Scripts first.")
+    st.stop()
+
+st.divider()
+
+
+def call_backend(endpoint: str, spinner_text: str, timeout: int = 900):
+    """POST to the backend and handle every failure mode."""
+
+    with st.spinner(spinner_text):
+        try:
+            response = requests.post(
+                f"{BACKEND_URL}{endpoint}",
+                timeout=timeout
+            )
+            response.raise_for_status()
+            return response.json()
+
+        except requests.exceptions.ConnectionError:
+            st.error("❌ Cannot connect to backend.")
+            st.code(BACKEND_URL)
+        except requests.exceptions.Timeout:
+            st.error("❌ Request timed out.")
+        except requests.exceptions.HTTPError:
+            st.error(f"❌ Backend error ({response.status_code}).")
+            try:
+                st.json(response.json())
+            except Exception:
+                st.code(response.text)
+        except Exception as e:
+            st.exception(e)
 
     st.stop()
 
-st.markdown("---")
-
-st.info(
-    "Click the button below to execute all generated Selenium test scripts."
-)
 
 # --------------------------------------------------
 # Execute
 # --------------------------------------------------
 
-if st.button(
-    "▶ Execute Tests",
-    use_container_width=True
-):
+st.info(
+    "Click the button below to execute all generated "
+    "Selenium test scripts."
+)
 
-    progress = st.progress(0)
-
-    status = st.empty()
-
-    try:
-
-        status.info("🚀 Starting Selenium Execution...")
-
-        progress.progress(20)
-
-        response = requests.post(
-            f"{BACKEND_URL}/execute",
-            timeout=600
-        )
-
-        response.raise_for_status()
-
-        progress.progress(70)
-
-        result = response.json()
-
-        progress.progress(100)
-
-        status.success("✅ Execution Finished Successfully")
-
-        # -------------------------
-        # Save Pipeline State
-        # -------------------------
-
-        st.session_state["execution_result"] = result
-        st.session_state["current_step"] = "execution"
-
-    except requests.exceptions.ConnectionError:
-
-        st.error("❌ Cannot connect to FastAPI Backend.")
-
-        st.info(f"Backend URL: {BACKEND_URL}")
-
-        st.stop()
-
-    except requests.exceptions.Timeout:
-
-        st.error("❌ Test execution timed out.")
-
-        st.stop()
-
-    except requests.exceptions.HTTPError:
-
-        st.error(
-            f"Backend Error ({response.status_code})"
-        )
-
-        try:
-            st.json(response.json())
-        except Exception:
-            st.code(response.text)
-
-        st.stop()
-
-    except Exception as e:
-
-        st.exception(e)
-
-        st.stop()
+if st.button("▶ Execute Tests", use_container_width=True, type="primary"):
+    result = call_backend("/execute", "Running Selenium tests...")
+    st.session_state["execution_result"] = result
+    st.rerun()
 
 # --------------------------------------------------
-# Display Result
+# Results
 # --------------------------------------------------
 
 if "execution_result" in st.session_state:
 
     result = st.session_state["execution_result"]
 
-    execution_status = result.get(
-        "status",
-        "UNKNOWN"
-    )
+    return_code = result.get("return_code", -1)
+    passed = result.get("passed", 0)
+    failed = result.get("failed", 0)
+    skipped = result.get("skipped", 0)
+    duration = result.get("duration_seconds", 0)
 
-    return_code = result.get(
-        "return_code",
-        -1
-    )
-
-    stdout = result.get(
-        "stdout",
-        ""
-    )
-
-    stderr = result.get(
-        "stderr",
-        ""
-    )
-
-    report = result.get(
-        "report",
-        REPORT_PATH
-    )
-
-    st.markdown("---")
-
+    st.divider()
     st.subheader("📊 Execution Summary")
 
-    col1, col2, col3 = st.columns(3)
+    c1, c2, c3, c4, c5 = st.columns(5)
 
-    with col1:
-
+    with c1:
         if return_code == 0:
-
             st.success("🟢 PASSED")
-
         else:
-
             st.error("🔴 FAILED")
 
-    with col2:
+    c2.metric("Passed", passed)
+    c3.metric("Failed", failed)
+    c4.metric("Skipped", skipped)
+    c5.metric("Duration", f"{duration:.0f}s")
 
-        st.metric(
-            "Return Code",
-            return_code
+    # ----------------------------------------------
+    # Self-healing (shown only when something failed)
+    # ----------------------------------------------
+
+    if return_code != 0 and result.get("failed_files"):
+
+        st.divider()
+        st.subheader("🩹 Self-Healing")
+
+        st.write(
+            "Failing tests: "
+            + ", ".join(f"`{f}`" for f in result["failed_files"])
         )
 
-    with col3:
-
-        st.metric(
-            "Status",
-            execution_status
+        st.info(
+            "Auto-Heal sends each failing script together with its "
+            "runtime error to the AI, applies the corrected version, "
+            "and re-runs the whole suite."
         )
 
-    st.markdown("---")
+        if st.button("🩹 Auto-Heal Failed Tests", use_container_width=True):
+            healed_result = call_backend(
+                "/heal", "Healing failed tests and re-running..."
+            )
+            st.session_state["execution_result"] = healed_result
+            st.rerun()
 
-    # --------------------------------------------------
-    # HTML REPORT
-    # --------------------------------------------------
+    # ----------------------------------------------
+    # Healing outcome (present after a /heal run)
+    # ----------------------------------------------
 
+    if result.get("healed_files"):
+        st.success(
+            "🩹 Healed: " + ", ".join(result["healed_files"])
+        )
+
+    if result.get("unhealed_files"):
+        for item in result["unhealed_files"]:
+            st.warning(
+                f"Could not heal {item['file']}: {item['reason']}"
+            )
+
+    # ----------------------------------------------
+    # HTML report
+    # ----------------------------------------------
+
+    st.divider()
     st.subheader("📄 HTML Report")
+
+    report = result.get("report", REPORT_PATH)
 
     if report and os.path.exists(report):
 
-        st.success("✅ HTML Report Generated")
-
-        with open(
-            report,
-            "rb"
-        ) as f:
-
+        with open(report, "rb") as f:
             st.download_button(
                 "⬇ Download HTML Report",
                 data=f,
@@ -195,54 +163,26 @@ if "execution_result" in st.session_state:
                 use_container_width=True
             )
 
-        st.divider()
-
-        with open(
-            report,
-            "r",
-            encoding="utf-8"
-        ) as f:
-
+        with open(report, "r", encoding="utf-8") as f:
             html = f.read()
 
-        components.html(
-            html,
-            height=800,
-            scrolling=True
-        )
+        components.html(html, height=800, scrolling=True)
 
     else:
-
         st.warning("HTML Report not found.")
 
-    # --------------------------------------------------
-    # Console Output
-    # --------------------------------------------------
+    # ----------------------------------------------
+    # Console output
+    # ----------------------------------------------
 
-    with st.expander(
-        "📜 Console Output"
-    ):
-
-        if stdout:
-
-            st.code(stdout)
-
+    with st.expander("📜 Console Output"):
+        if result.get("stdout"):
+            st.code(result["stdout"])
         else:
-
             st.info("No console output.")
 
-    # --------------------------------------------------
-    # Error Log
-    # --------------------------------------------------
-
-    with st.expander(
-        "❌ Error Log"
-    ):
-
-        if stderr:
-
-            st.code(stderr)
-
+    with st.expander("❌ Error Log"):
+        if result.get("stderr"):
+            st.code(result["stderr"])
         else:
-
             st.success("No errors reported.")

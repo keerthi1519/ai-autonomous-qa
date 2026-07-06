@@ -16,157 +16,88 @@ HISTORY_FILE = "reports/history.json"
 
 st.divider()
 
-# --------------------------------------------------------
-# Check History File
-# --------------------------------------------------------
-
 if not os.path.exists(HISTORY_FILE):
-
     st.warning("⚠ No execution history found.")
-
-    st.info(
-        "Execute Selenium tests to create execution history."
-    )
-
+    st.info("Execute Selenium tests to create execution history.")
     st.stop()
-
-# --------------------------------------------------------
-# Load History
-# --------------------------------------------------------
 
 try:
-
-    with open(
-        HISTORY_FILE,
-        "r",
-        encoding="utf-8"
-    ) as f:
-
+    with open(HISTORY_FILE, "r", encoding="utf-8") as f:
         history = json.load(f)
-
 except Exception as e:
-
     st.error("Unable to read history.json")
-
     st.exception(e)
-
     st.stop()
-
-# --------------------------------------------------------
-# Empty History
-# --------------------------------------------------------
 
 if not history:
-
     st.info("No executions have been recorded yet.")
-
     st.stop()
 
 # --------------------------------------------------------
-# Display Summary
+# Summary metrics
 # --------------------------------------------------------
 
 st.subheader("📈 Summary")
 
 total_runs = len(history)
-
-passed = sum(
-    1
-    for item in history
-    if item.get("status") == "SUCCESS"
+green_runs = sum(1 for item in history if item.get("status") == "SUCCESS")
+total_passed = sum(item.get("passed", 0) for item in history)
+total_failed = sum(item.get("failed", 0) for item in history)
+pass_rate = (
+    100 * total_passed / (total_passed + total_failed)
+    if (total_passed + total_failed) > 0
+    else 0
 )
 
-failed = total_runs - passed
-
-col1, col2, col3 = st.columns(3)
-
-with col1:
-
-    st.metric(
-        "Total Runs",
-        total_runs
-    )
-
-with col2:
-
-    st.metric(
-        "Passed",
-        passed
-    )
-
-with col3:
-
-    st.metric(
-        "Failed",
-        failed
-    )
+c1, c2, c3, c4 = st.columns(4)
+c1.metric("Total Runs", total_runs)
+c2.metric("Green Runs", f"{green_runs}/{total_runs}")
+c3.metric("Tests Passed", total_passed)
+c4.metric("Overall Pass Rate", f"{pass_rate:.0f}%")
 
 st.divider()
 
 # --------------------------------------------------------
-# Display Table
+# Trend chart
 # --------------------------------------------------------
 
 df = pd.DataFrame(history)
 
-st.subheader("📋 Execution History")
+if "passed" in df.columns and len(df) > 1:
 
-st.dataframe(
-    df,
-    use_container_width=True,
-    hide_index=True
-)
+    st.subheader("📊 Pass / Fail Trend")
+
+    chart_df = df[["passed", "failed"]].copy()
+    chart_df.index = range(1, len(chart_df) + 1)
+    st.line_chart(chart_df, color=["#21c354", "#ff4b4b"])
+
+    if "duration_seconds" in df.columns:
+        st.subheader("⏱ Run Duration (seconds)")
+        dur = df[["duration_seconds"]].copy()
+        dur.index = range(1, len(dur) + 1)
+        st.bar_chart(dur)
 
 st.divider()
 
 # --------------------------------------------------------
-# Latest Execution
+# Full table
 # --------------------------------------------------------
 
-latest = history[-1]
+st.subheader("📋 All Runs")
+
+st.dataframe(df, use_container_width=True, hide_index=True)
+
+st.divider()
 
 st.subheader("🕒 Latest Execution")
 
-st.json(latest)
+st.json(history[-1])
 
-# --------------------------------------------------------
-# Download History
-# --------------------------------------------------------
-
-with open(
-    HISTORY_FILE,
-    "rb"
-) as f:
-
+with open(HISTORY_FILE, "rb") as f:
     st.download_button(
-        "⬇ Download History",
+        "⬇ Download History (JSON)",
         data=f,
         file_name="history.json",
         mime="application/json",
         use_container_width=True
     )
-
-# --------------------------------------------------------
-# Clear Session Button
-# --------------------------------------------------------
-
-if st.button(
-    "🧹 Clear Current Session",
-    use_container_width=True
-):
-
-    keys = [
-        "analysis",
-        "analysis_data",
-        "test_scenarios",
-        "test_cases",
-        "selenium_scripts",
-        "execution_result",
-        "report_path",
-        "current_step"
-    ]
-
-    for key in keys:
-        st.session_state.pop(key, None)
-
-    st.success("Current session cleared.")

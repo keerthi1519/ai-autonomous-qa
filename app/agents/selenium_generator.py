@@ -16,72 +16,109 @@ logger = logging.getLogger(__name__)
 
 class SeleniumGenerator:
 
+    # --------------------------------------------------
+    # Per-script quality checks
+    # --------------------------------------------------
+
     @staticmethod
     def validate_script_quality(
         code: str,
-        application_url: str
-    ):
+        application_url: str,
+        dom_information: dict
+    ) -> list[str]:
+        """
+        Return a list of problems for one script.
+        Empty list means the script is acceptable.
+        """
 
         errors = []
 
-        # ----------------------------------------
-        # URL Validation
-        # ----------------------------------------
+        # ----- URL checks -----
 
-        if "https://example.com" in code:
-            errors.append("example.com detected.")
-
-        if "http://example.com" in code:
-            errors.append("example.com detected.")
+        for forbidden in ["example.com", "localhost", "127.0.0.1"]:
+            if forbidden in code:
+                errors.append(f"Forbidden URL detected: {forbidden}")
 
         if application_url not in code:
-            errors.append(
-                "Application URL not used."
-            )
+            errors.append("Application URL not used.")
 
-        # ----------------------------------------
-        # Credentials
-        # ----------------------------------------
+        # ----- Placeholder checks -----
 
-        if "REPLACE_USERNAME" in code:
-            errors.append(
-                "Placeholder username detected."
-            )
+        for placeholder in [
+            "REPLACE_USERNAME",
+            "REPLACE_PASSWORD",
+            "REPLACE_WITH_ACTUAL_LOCATOR",
+        ]:
+            if placeholder in code:
+                errors.append(f"Placeholder detected: {placeholder}")
 
-        if "REPLACE_PASSWORD" in code:
-            errors.append(
-                "Placeholder password detected."
-            )
+        # ----- Feature hallucination checks -----
 
-        # ----------------------------------------
-        # Fake Locator
-        # ----------------------------------------
+        dom_json = json.dumps(dom_information).lower()
 
-        if "REPLACE_WITH_ACTUAL_LOCATOR" in code:
-            errors.append(
-                "Placeholder locator detected."
-            )
-
-        # ----------------------------------------
-        # Unsupported Feature
-        # ----------------------------------------
-
-        unsupported = [
-            "registration",
-            "signup",
-            "checkout",
-            "payment"
-        ]
-
-        for feature in unsupported:
-
-            if feature in code.lower():
-
+        for feature in ["registration", "signup", "checkout", "payment"]:
+            if feature in code.lower() and feature not in dom_json:
                 errors.append(
                     f"Unsupported feature generated: {feature}"
                 )
 
+        # ----- Fragile locator patterns -----
+
+        if "contains(text()" in code:
+            errors.append(
+                "Fragile locator contains(text(), ...) used — "
+                "must use normalize-space() instead."
+            )
+
+        # ----- Required components -----
+
+        for item in ["driver.quit()", "WebDriverWait", "assert"]:
+            if item not in code:
+                errors.append(f"Missing required component: {item}")
+
+        # ----- Structure: code must live inside a pytest function -----
+        # Module-level Selenium code runs at pytest collection time
+        # and breaks the whole run (exit code 2).
+
+        try:
+            tree = ast.parse(code)
+        except SyntaxError:
+            # Syntax problems are handled (and repaired) separately.
+            return errors
+
+        has_test_function = any(
+            isinstance(node, ast.FunctionDef)
+            and node.name.startswith("test_")
+            for node in tree.body
+        )
+
+        if not has_test_function:
+            errors.append(
+                "No pytest test function (def test_...) found."
+            )
+
+        allowed_toplevel = (
+            ast.Import,
+            ast.ImportFrom,
+            ast.FunctionDef,
+            ast.ClassDef,
+            ast.Assign,          # constants like USERNAME = ...
+            ast.AnnAssign,
+        )
+
+        for node in tree.body:
+            if not isinstance(node, allowed_toplevel):
+                errors.append(
+                    "Executable code found at module level "
+                    "(must be inside the test function)."
+                )
+                break
+
         return errors
+
+    # --------------------------------------------------
+    # Main generation
+    # --------------------------------------------------
 
     @staticmethod
     def generate(
@@ -89,580 +126,181 @@ class SeleniumGenerator:
         application_url: str
     ) -> SeleniumScriptList:
 
-        # ==============================================
-        # Validate URL
-        # ==============================================
+        # ----- Validate URL -----
 
-        if not application_url:
-            raise ValueError(
-                "Application URL is required."
-            )
+        if not application_url or not application_url.strip():
+            raise ValueError("Application URL is required.")
 
         application_url = application_url.strip()
 
-        if application_url == "":
-            raise ValueError(
-                "Application URL cannot be empty."
-            )
+        logger.info("APPLICATION URL: %s", application_url)
 
-        logger.info("=" * 80)
-        logger.info("APPLICATION URL")
-        logger.info(application_url)
-        logger.info("=" * 80)
+        # ----- Analyze website DOM -----
 
-        # ==============================================
-        # Analyze Website DOM
-        # ==============================================
+        logger.info("ANALYZING WEBSITE DOM...")
 
-        logger.info("=" * 80)
-        logger.info("ANALYZING WEBSITE DOM")
-        logger.info("=" * 80)
-
-        dom_information = DOMService.analyze(
-            application_url
-        )
-
-        logger.info("=" * 80)
-        logger.info("DOM INFORMATION")
-        logger.info("=" * 80)
+        dom_information = DOMService.analyze(application_url)
 
         logger.info(
-            json.dumps(
-                dom_information,
-                indent=2
-            )
+            "DOM INFORMATION:\n%s",
+            json.dumps(dom_information, indent=2)
         )
 
-        # ==============================================
-        # Load Prompt
-        # ==============================================
+        # ----- Build prompt -----
 
-        prompt = load_prompt(
-            "selenium_prompt.txt"
-        )
-
-        prompt = prompt.replace(
-            "{application_url}",
-            application_url
-        )
-
+        prompt = load_prompt("selenium_prompt.txt")
+        prompt = prompt.replace("{application_url}", application_url)
         prompt = prompt.replace(
             "{dom_information}",
-            json.dumps(
-                dom_information,
-                indent=2
-            )
+            json.dumps(dom_information, indent=2)
         )
-
         prompt = prompt.replace(
             "{test_cases}",
-            json.dumps(
-                test_cases.model_dump(),
-                indent=2
-            )
+            json.dumps(test_cases.model_dump(), indent=2)
         )
 
-        logger.info("=" * 80)
-        logger.info("FINAL PROMPT")
-        logger.info("=" * 80)
-        logger.info(prompt)
-
-        # ==============================================
-        # Generate Structured Output
-        # ==============================================
+        # ----- Generate -----
 
         raw = ai_client.generate_structured(
             prompt=prompt,
             schema=dict
         )
 
-        logger.info("=" * 80)
-        logger.info("RAW AI RESPONSE")
-        logger.info("=" * 80)
-
-        logger.info(
-            json.dumps(
-                raw,
-                indent=2
-            )
-        )
-        
-                # ==============================================
-        # Normalize Response
-        # ==============================================
+        # ----- Normalize response shape -----
 
         if isinstance(raw, dict):
-
             if "scripts" not in raw:
-
                 raise Exception(
                     "LLM response does not contain 'scripts'."
                 )
-
             normalized = raw
-
         elif isinstance(raw, list):
-
-            normalized = {
-                "scripts": raw
-            }
-
+            normalized = {"scripts": raw}
         else:
+            raise Exception(f"Unexpected AI response:\n{raw}")
 
-            raise Exception(
-                f"Unexpected AI response:\n{raw}"
-            )
-
-        # ==============================================
-        # Validate Schema
-        # ==============================================
-
-        selenium_scripts = SeleniumScriptList.model_validate(
-            normalized
-        )
+        selenium_scripts = SeleniumScriptList.model_validate(normalized)
 
         if len(selenium_scripts.scripts) == 0:
+            raise Exception("No Selenium scripts were generated.")
 
-            raise Exception(
-                "No Selenium scripts were generated."
-            )
-
-        logger.info("=" * 80)
         logger.info(
-            "TOTAL SCRIPTS GENERATED : %d",
+            "TOTAL SCRIPTS GENERATED: %d",
             len(selenium_scripts.scripts)
         )
-        logger.info("=" * 80)
 
         # ==============================================
-        # Validate Each Script
+        # Validate each script.
+        # Invalid scripts are SKIPPED (with a logged
+        # reason) instead of failing the whole batch.
         # ==============================================
 
-        for script in selenium_scripts.scripts:
-
-            logger.info("=" * 80)
-            logger.info(
-                "PROCESSING : %s",
-                script.file_name
-            )
-            logger.info("=" * 80)
-
-            # ------------------------------------------
-            # Normalize File Name
-            # ------------------------------------------
-
-            if not script.file_name.startswith(
-                "test_"
-            ):
-
-                script.file_name = (
-                    f"test_{script.file_name}"
-                )
-
-            if not script.file_name.endswith(
-                ".py"
-            ):
-
-                script.file_name += ".py"
-
-            # ------------------------------------------
-            # Remove Markdown
-            # ------------------------------------------
-
-            code = (
-                script.code
-                .replace(
-                    "```python",
-                    ""
-                )
-                .replace(
-                    "```",
-                    ""
-                )
-                .strip()
-            )
-
-            logger.info(
-                "SCRIPT CLEANED SUCCESSFULLY"
-            )
-
-            # ------------------------------------------
-            # Quality Validation
-            # ------------------------------------------
-
-            quality_errors = (
-                SeleniumGenerator.validate_script_quality(
-                    code,
-                    application_url
-                )
-            )
-
-            if quality_errors:
-
-                raise Exception(
-                    f"""
-
-Invalid Selenium Script
-
-File:
-{script.file_name}
-
-Problems:
-
-{chr(10).join(quality_errors)}
-
-Generated Code:
-
-{code}
-
-"""
-                )
-
-            logger.info(
-                "QUALITY VALIDATION PASSED"
-            )
-
-            # ------------------------------------------
-            # Validate Python Syntax
-            # ------------------------------------------
-
-            try:
-
-                ast.parse(code)
-
-                logger.info(
-                    "PYTHON SYNTAX VALID"
-                )
-            except SyntaxError as e:
-
-                logger.error("=" * 80)
-                logger.error("INVALID PYTHON GENERATED")
-                logger.error("FILE : %s", script.file_name)
-                logger.error("ERROR : %s", str(e))
-                logger.error("=" * 80)
-
-                logger.info(
-                    "ATTEMPTING AUTOMATIC REPAIR..."
-                )
-
-                try:
-
-                    repaired = ai_client.repair_python(
-                        code,
-                        str(e)
-                    )
-
-                    repaired = (
-                        repaired
-                        .replace(
-                            "```python",
-                            ""
-                        )
-                        .replace(
-                            "```",
-                            ""
-                        )
-                        .strip()
-                    )
-
-                    logger.info(
-                        "REPAIRED PYTHON RECEIVED"
-                    )
-
-                    # --------------------------------------
-                    # Validate repaired code
-                    # --------------------------------------
-
-                    ast.parse(repaired)
-
-                    logger.info(
-                        "REPAIR SUCCESSFUL"
-                    )
-
-                    code = repaired
-
-                except Exception as repair_error:
-
-                    logger.exception(
-                        "AUTOMATIC REPAIR FAILED"
-                    )
-
-                    raise Exception(
-                        f"""
-
-Unable to repair generated Python.
-
-File:
-{script.file_name}
-
-Original Error:
-{e}
-
-Repair Error:
-{repair_error}
-
-Generated Code:
-
-{code}
-
-"""
-                    )
-
-            # ------------------------------------------
-            # Final URL Validation
-            # ------------------------------------------
-
-            if "example.com" in code:
-
-                raise Exception(
-                    f"""
-
-Invalid Selenium Script
-
-File:
-{script.file_name}
-
-Reason:
-example.com still exists.
-
-"""
-                )
-
-            if application_url not in code:
-
-                raise Exception(
-                    f"""
-
-Invalid Selenium Script
-
-File:
-{script.file_name}
-
-Reason:
-Application URL missing.
-
-Expected URL:
-
-{application_url}
-
-"""
-                )
-
-            logger.info(
-                "URL VALIDATION PASSED"
-            )
-
-            # ------------------------------------------
-            # Final Python Validation
-            # ------------------------------------------
-
-            try:
-
-                ast.parse(code)
-
-            except SyntaxError as e:
-
-                raise Exception(
-                    f"""
-
-Final Python validation failed.
-
-File:
-{script.file_name}
-
-Error:
-
-{e}
-
-Generated Code:
-
-{code}
-
-"""
-                )
-
-            logger.info(
-                "FINAL PYTHON VALIDATION PASSED"
-            )
-
-            # ------------------------------------------
-            # Required Selenium Components
-            # ------------------------------------------
-
-            required = [
-                "driver.quit()",
-                "WebDriverWait",
-                "assert"
-            ]
-
-            for item in required:
-
-                if item not in code:
-
-                    raise Exception(
-                        f"""
-
-File:
-{script.file_name}
-
-Missing Required Component:
-
-{item}
-
-"""
-                    )
-
-            logger.info(
-                "REQUIRED COMPONENT VALIDATION PASSED"
-            )
-                        # ------------------------------------------
-            # DOM Validation
-            # ------------------------------------------
-
-            logger.info("=" * 80)
-            logger.info("DOM VALIDATION")
-            logger.info("=" * 80)
-
-            dom_json = json.dumps(
-                dom_information
-            ).lower()
-
-            # Prevent AI from inventing obvious features
-            unsupported_features = [
-                "registration",
-                "signup",
-                "checkout",
-                "payment"
-            ]
-
-            for feature in unsupported_features:
-
-                if (
-                    feature in code.lower()
-                    and feature not in dom_json
-                ):
-
-                    raise Exception(
-                        f"""
-
-Generated Selenium uses unsupported feature.
-
-Feature:
-{feature}
-
-File:
-{script.file_name}
-
-"""
-                    )
-
-            logger.info(
-                "DOM FEATURE VALIDATION PASSED"
-            )
-
-            # ------------------------------------------
-            # Prevent Placeholder URLs
-            # ------------------------------------------
-
-            forbidden = [
-                "example.com",
-                "localhost",
-                "127.0.0.1"
-            ]
-
-            for url in forbidden:
-
-                if url in code:
-
-                    raise Exception(
-                        f"""
-
-Forbidden URL detected.
-
-File:
-{script.file_name}
-
-URL:
-{url}
-
-"""
-                    )
-
-            logger.info(
-                "URL VALIDATION PASSED"
-            )
-
-            # ------------------------------------------
-            # Final Formatting
-            # ------------------------------------------
-
-            code = code.rstrip() + "\n"
-
-            script.code = code
-
-            logger.info("=" * 80)
-            logger.info(
-                "FINAL SCRIPT : %s",
-                script.file_name
-            )
-            logger.info("=" * 80)
-
-            logger.info(script.code)
-
-            logger.info("=" * 80)
-            logger.info(
-                "SCRIPT VALIDATED SUCCESSFULLY"
-            )
-            logger.info("=" * 80)
-
-        # ==============================================
-        # Final Validation
-        # ==============================================
-
+        valid_scripts = []
+        skipped = []
         filenames = set()
 
         for script in selenium_scripts.scripts:
 
-            if script.file_name in filenames:
+            # ----- Normalize file name -----
 
-                raise Exception(
-                    f"Duplicate filename detected: {script.file_name}"
+            if not script.file_name.startswith("test_"):
+                script.file_name = f"test_{script.file_name}"
+
+            if not script.file_name.endswith(".py"):
+                script.file_name += ".py"
+
+            logger.info("PROCESSING: %s", script.file_name)
+
+            # ----- Strip markdown fences -----
+
+            code = (
+                script.code
+                .replace("```python", "")
+                .replace("```", "")
+                .strip()
+            )
+
+            # ----- Syntax check (with AI repair) -----
+
+            try:
+                ast.parse(code)
+            except SyntaxError as e:
+                logger.warning(
+                    "Syntax error in %s — attempting repair: %s",
+                    script.file_name, e
                 )
+                try:
+                    repaired = ai_client.repair_python(code, str(e))
+                    repaired = (
+                        repaired
+                        .replace("```python", "")
+                        .replace("```", "")
+                        .strip()
+                    )
+                    ast.parse(repaired)
+                    code = repaired
+                    logger.info("REPAIR SUCCESSFUL: %s", script.file_name)
+                except Exception as repair_error:
+                    skipped.append({
+                        "file": script.file_name,
+                        "reason": f"Unrepairable syntax error: {repair_error}"
+                    })
+                    continue
+
+            # ----- Quality checks -----
+
+            quality_errors = SeleniumGenerator.validate_script_quality(
+                code,
+                application_url,
+                dom_information
+            )
+
+            if quality_errors:
+                skipped.append({
+                    "file": script.file_name,
+                    "reason": "; ".join(quality_errors)
+                })
+                logger.warning(
+                    "SKIPPING %s: %s",
+                    script.file_name,
+                    "; ".join(quality_errors)
+                )
+                continue
+
+            # ----- Duplicate names -----
+
+            if script.file_name in filenames:
+                skipped.append({
+                    "file": script.file_name,
+                    "reason": "Duplicate filename."
+                })
+                continue
 
             filenames.add(script.file_name)
 
-        logger.info("=" * 80)
-        logger.info("ALL GENERATED SCRIPTS VALIDATED")
-        logger.info("=" * 80)
-                # ==============================================
-        # Final Summary
+            script.code = code.rstrip() + "\n"
+            valid_scripts.append(script)
+
+            logger.info("SCRIPT VALIDATED: %s", script.file_name)
+
+        # ==============================================
+        # Summary
         # ==============================================
 
-        logger.info("=" * 80)
+        logger.info("=" * 60)
         logger.info("SELENIUM GENERATION SUMMARY")
-        logger.info("=" * 80)
+        logger.info("Valid scripts   : %d", len(valid_scripts))
+        logger.info("Skipped scripts : %d", len(skipped))
+        for item in skipped:
+            logger.info("  SKIPPED %s — %s", item["file"], item["reason"])
+        logger.info("=" * 60)
 
-        logger.info(
-            "Application URL : %s",
-            application_url
-        )
-
-        logger.info(
-            "Total Scripts : %d",
-            len(selenium_scripts.scripts)
-        )
-
-        logger.info("Generated Files:")
-
-        for script in selenium_scripts.scripts:
-
-            logger.info(
-                "  • %s",
-                script.file_name
+        if not valid_scripts:
+            details = "\n".join(
+                f"- {item['file']}: {item['reason']}" for item in skipped
+            )
+            raise Exception(
+                "All generated scripts were invalid:\n" + details
             )
 
-        logger.info("=" * 80)
-        logger.info("SELENIUM GENERATION COMPLETED SUCCESSFULLY")
-        logger.info("=" * 80)
-
-        return selenium_scripts
+        return SeleniumScriptList(scripts=valid_scripts)

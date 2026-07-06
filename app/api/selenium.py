@@ -1,5 +1,6 @@
 from pathlib import Path
 import ast
+import re
 import traceback
 
 from fastapi import APIRouter, HTTPException
@@ -53,13 +54,17 @@ async def generate_selenium(
 
         for script in scripts.scripts:
 
-            filename = script.file_name.strip()
+            # Sanitize LLM-chosen filename:
+            # strip path components, then whitelist characters.
+            raw_name = script.file_name.strip().replace("\\", "/")
+            stem = Path(raw_name).stem
+            stem = re.sub(r"[^A-Za-z0-9_-]", "_", stem)[:100]
 
-            if not filename.startswith("test_"):
-                filename = f"test_{filename}"
+            if not stem:
+                stem = "generated"
 
-            if not filename.endswith(".py"):
-                filename += ".py"
+            filename = stem if stem.startswith("test_") else f"test_{stem}"
+            filename += ".py"
 
             code = script.code
 

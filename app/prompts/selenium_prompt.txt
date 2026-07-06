@@ -30,13 +30,46 @@ Never invent:
 - Links
 - Input fields
 
+Build locators ONLY from attribute values that appear in the
+DOM INFORMATION above (id, name, type, placeholder, class, text, href).
+
+Locator strategy, in order of preference:
+
+1. By.ID           — if the element has an id
+2. By.NAME         — if the element has a name
+3. By.CSS_SELECTOR — from type/class attributes,
+   e.g. submit buttons: "button[type='submit']"
+4. By.XPATH with normalize-space() for visible text,
+   e.g.: "//button[normalize-space()='Login']"
+
+NEVER use contains(text(), ...) — it breaks on whitespace
+and nested elements. Always use normalize-space() instead.
+
 If an element required by a test case is NOT present in the DOM,
-generate an executable placeholder XPath:
+use the closest matching element from the DOM INFORMATION instead.
 
-By.XPATH,
-"//*[@data-testid='REPLACE_WITH_ACTUAL_LOCATOR']"
+Never write the string REPLACE_WITH_ACTUAL_LOCATOR anywhere.
 
-Do NOT invent random locators.
+After clicking a button that triggers navigation or validation,
+wait for the result before asserting. Use GENERIC patterns that
+work on any website — for example:
+
+start_url = driver.current_url
+login_button.click()
+WebDriverWait(driver, 15).until(
+    lambda d: d.current_url != start_url
+    or len(d.find_elements(
+        By.CSS_SELECTOR,
+        "[class*='alert'], [class*='error'], [role='alert']"
+    )) > 0
+)
+
+Assertions must verify the test case's expected result
+(URL change, error message shown, element visible) —
+never assert only that the title is non-empty.
+
+Never hard-code website-specific CSS class names that are not
+present in the DOM INFORMATION.
 
 ==================================================
 TEST CASES
@@ -93,16 +126,24 @@ Never invent usernames.
 
 Never invent passwords.
 
-If the test case explicitly provides credentials,
+If the test case or requirement explicitly provides credentials,
 use them.
 
-Otherwise use ONLY:
+Otherwise read credentials from environment variables,
+at the top of the script:
 
-USERNAME = "REPLACE_USERNAME"
+import os
 
-PASSWORD = "REPLACE_PASSWORD"
+USERNAME = os.environ.get("TEST_USERNAME", "")
+PASSWORD = os.environ.get("TEST_PASSWORD", "")
 
-Do NOT replace these values yourself.
+If a test cannot run meaningfully without credentials,
+skip it instead of failing, as the FIRST line of the test:
+
+if not USERNAME:
+    pytest.skip("TEST_USERNAME / TEST_PASSWORD not configured")
+
+Never write the strings REPLACE_USERNAME or REPLACE_PASSWORD anywhere.
 
 ==================================================
 OUTPUT FORMAT
@@ -144,11 +185,40 @@ Filename:
 
 test_xxx.py
 
-Function:
+CRITICAL STRUCTURE RULE:
+
+ALL executable code MUST be inside a pytest test function.
+NOTHING except imports may be at module level.
+
+Every script MUST follow EXACTLY this skeleton:
+
+import os
+
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.chrome.options import Options
+import pytest
+
 
 def test_xxx():
+    options = Options()
+    options.add_argument("--headless=new")
+    options.add_argument("--no-sandbox")
+    options.add_argument("--disable-dev-shm-usage")
+    driver = webdriver.Chrome(options=options)
+    try:
+        driver.get("{application_url}")
+        # ... test steps and assertions here ...
+    finally:
+        driver.quit()
+
+Scripts with code outside a function will be REJECTED.
 
 Imports:
+
+import os
 
 from selenium import webdriver
 from selenium.webdriver.common.by import By

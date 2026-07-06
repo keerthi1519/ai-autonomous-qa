@@ -1,6 +1,7 @@
 from fastapi import APIRouter, HTTPException
 
 from app.services.execution_service import ExecutionService
+from app.services.healing_service import HealingService
 
 router = APIRouter(
     tags=["Execution"]
@@ -14,13 +15,32 @@ async def execute_tests():
     """
 
     try:
-
-        result = ExecutionService.execute()
-
-        return result
+        return ExecutionService.execute()
 
     except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=str(e)
+        )
 
+
+@router.post("/heal")
+async def heal_failed_tests():
+    """
+    Self-healing: repair the scripts that failed in the last
+    run using their runtime errors, then re-run the suite.
+    """
+
+    try:
+        return HealingService.heal_and_rerun()
+
+    except ValueError as e:
+        raise HTTPException(
+            status_code=400,
+            detail=str(e)
+        )
+
+    except Exception as e:
         raise HTTPException(
             status_code=500,
             detail=str(e)

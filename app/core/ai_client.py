@@ -205,4 +205,19 @@ Instructions
         return repaired
 
 
-ai_client = AIClient()
+class _LazyAIClient:
+    """
+    Defers AIClient construction until first real use, so that
+    importing backend modules never requires network/API setup
+    (essential for unit testing).
+    """
+
+    _instance = None
+
+    def __getattr__(self, name):
+        if _LazyAIClient._instance is None:
+            _LazyAIClient._instance = AIClient()
+        return getattr(_LazyAIClient._instance, name)
+
+
+ai_client = _LazyAIClient()
