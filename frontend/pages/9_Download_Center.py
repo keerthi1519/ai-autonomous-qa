@@ -1,5 +1,9 @@
-import os
+import json
+
+import requests
 import streamlit as st
+
+from config import BACKEND_URL
 
 st.set_page_config(
     page_title="Download Center",
@@ -15,157 +19,114 @@ st.markdown(
 
 st.divider()
 
-DOWNLOADS = [
 
-    {
-        "title": "📄 Uploaded Requirement Documents",
-        "path": "uploads"
-    },
+def fetch(endpoint, as_json=True):
+    try:
+        response = requests.get(f"{BACKEND_URL}{endpoint}", timeout=30)
+        if response.status_code != 200:
+            return None
+        return response.json() if as_json else response.text
+    except requests.exceptions.RequestException:
+        return None
 
-    {
-        "title": "🤖 Generated Selenium Scripts",
-        "path": "generated_tests"
-    },
 
-    {
-        "title": "📊 HTML Test Report",
-        "path": "reports/report.html"
-    },
+# ----------------------------------------------------
+# Uploaded requirement documents
+# ----------------------------------------------------
 
-    {
-        "title": "📜 Execution History",
-        "path": "reports/history.json"
-    }
+st.subheader("📄 Uploaded Requirement Documents")
 
-]
+uploads = fetch("/artifacts/uploads")
 
-for item in DOWNLOADS:
+if uploads:
+    for item in uploads:
+        st.download_button(
+            label=f"⬇ Download {item['name']}",
+            data=item["content"],
+            file_name=item["name"],
+            use_container_width=True,
+            key=f"upload_{item['name']}"
+        )
+else:
+    st.info("No uploaded documents available.")
 
-    st.subheader(item["title"])
+st.divider()
 
-    path = item["path"]
+# ----------------------------------------------------
+# Generated Selenium scripts
+# ----------------------------------------------------
 
-    # ----------------------------------------------------
-    # Folder Downloads
-    # ----------------------------------------------------
+st.subheader("🤖 Generated Selenium Scripts")
 
-    if os.path.isdir(path):
+tests = fetch("/artifacts/tests")
 
-        files = sorted(os.listdir(path))
-
-        files = [
-
-            file
-
-            for file in files
-
-            if os.path.isfile(
-                os.path.join(path, file)
-            )
-
-            and not file.endswith(".pyc")
-
-            and "__pycache__" not in file
-
-        ]
-
-        if not files:
-
-            st.info("No files available.")
-
-            st.divider()
-
-            continue
-
-        for file in files:
-
-            filepath = os.path.join(path, file)
-
-            with open(
-                filepath,
-                "rb"
-            ) as f:
-
-                st.download_button(
-
-                    label=f"⬇ Download {file}",
-
-                    data=f.read(),
-
-                    file_name=file,
-
-                    use_container_width=True,
-
-                    key=f"{path}_{file}"
-
-                )
-
-    # ----------------------------------------------------
-    # Single File Download
-    # ----------------------------------------------------
-
-    elif os.path.isfile(path):
-
-        with open(
-            path,
-            "rb"
-        ) as f:
-
+if tests:
+    for item in tests:
+        with st.expander(item["name"]):
+            st.code(item["code"], language="python")
             st.download_button(
-
-                label=f"⬇ Download {os.path.basename(path)}",
-
-                data=f.read(),
-
-                file_name=os.path.basename(path),
-
+                label=f"⬇ Download {item['name']}",
+                data=item["code"],
+                file_name=item["name"],
                 use_container_width=True,
-
-                key=path
-
+                key=f"test_{item['name']}"
             )
+else:
+    st.info("No generated scripts available.")
 
-    # ----------------------------------------------------
-    # File Not Found
-    # ----------------------------------------------------
-
-    else:
-
-        st.warning(f"{path} not found.")
-
-    st.divider()
+st.divider()
 
 # ----------------------------------------------------
-# Project Summary
+# HTML test report
 # ----------------------------------------------------
 
-st.subheader("📦 Project Artifacts")
+st.subheader("📊 HTML Test Report")
 
-col1, col2, col3 = st.columns(3)
+report_html = fetch("/report", as_json=False)
 
-with col1:
-
-    st.metric(
-        "Requirement Files",
-        len(os.listdir("uploads"))
-        if os.path.exists("uploads")
-        else 0
+if report_html:
+    st.download_button(
+        label="⬇ Download report.html",
+        data=report_html,
+        file_name="report.html",
+        mime="text/html",
+        use_container_width=True,
+        key="report"
     )
+else:
+    st.info("No report available. Execute the tests first.")
 
-with col2:
+st.divider()
 
-    st.metric(
-        "Generated Tests",
-        len(os.listdir("generated_tests"))
-        if os.path.exists("generated_tests")
-        else 0
+# ----------------------------------------------------
+# Execution history
+# ----------------------------------------------------
+
+st.subheader("📜 Execution History")
+
+history = fetch("/history")
+
+if history:
+    st.download_button(
+        label="⬇ Download history.json",
+        data=json.dumps(history, indent=2),
+        file_name="history.json",
+        mime="application/json",
+        use_container_width=True,
+        key="history"
     )
+else:
+    st.info("No execution history available.")
 
-with col3:
+st.divider()
 
-    st.metric(
-        "Reports",
-        len(os.listdir("reports"))
-        if os.path.exists("reports")
-        else 0
-    )
+# ----------------------------------------------------
+# Summary
+# ----------------------------------------------------
+
+st.subheader("📦 Artifact Summary")
+
+c1, c2, c3 = st.columns(3)
+c1.metric("Requirement Files", len(uploads) if uploads else 0)
+c2.metric("Generated Tests", len(tests) if tests else 0)
+c3.metric("Runs Recorded", len(history) if history else 0)

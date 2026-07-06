@@ -1,12 +1,8 @@
-import os
-
 import requests
 import streamlit as st
 import streamlit.components.v1 as components
 
 from config import BACKEND_URL
-
-REPORT_PATH = "reports/report.html"
 
 st.set_page_config(
     page_title="Execute Tests",
@@ -150,21 +146,22 @@ if "execution_result" in st.session_state:
     st.divider()
     st.subheader("📄 HTML Report")
 
-    report = result.get("report", REPORT_PATH)
+    try:
+        report_resp = requests.get(f"{BACKEND_URL}/report", timeout=30)
+    except requests.exceptions.RequestException:
+        report_resp = None
 
-    if report and os.path.exists(report):
+    if report_resp is not None and report_resp.status_code == 200:
 
-        with open(report, "rb") as f:
-            st.download_button(
-                "⬇ Download HTML Report",
-                data=f,
-                file_name="report.html",
-                mime="text/html",
-                use_container_width=True
-            )
+        html = report_resp.text
 
-        with open(report, "r", encoding="utf-8") as f:
-            html = f.read()
+        st.download_button(
+            "⬇ Download HTML Report",
+            data=html,
+            file_name="report.html",
+            mime="text/html",
+            use_container_width=True
+        )
 
         components.html(html, height=800, scrolling=True)
 

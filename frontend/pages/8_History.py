@@ -1,8 +1,10 @@
 import json
-import os
 
 import pandas as pd
+import requests
 import streamlit as st
+
+from config import BACKEND_URL
 
 st.set_page_config(
     page_title="Execution History",
@@ -12,25 +14,19 @@ st.set_page_config(
 
 st.title("📜 Execution History")
 
-HISTORY_FILE = "reports/history.json"
-
 st.divider()
 
-if not os.path.exists(HISTORY_FILE):
-    st.warning("⚠ No execution history found.")
-    st.info("Execute Selenium tests to create execution history.")
-    st.stop()
-
 try:
-    with open(HISTORY_FILE, "r", encoding="utf-8") as f:
-        history = json.load(f)
-except Exception as e:
-    st.error("Unable to read history.json")
-    st.exception(e)
+    response = requests.get(f"{BACKEND_URL}/history", timeout=30)
+    response.raise_for_status()
+    history = response.json()
+except requests.exceptions.RequestException:
+    st.error("❌ Cannot reach the backend.")
+    st.code(BACKEND_URL)
     st.stop()
 
 if not history:
-    st.info("No executions have been recorded yet.")
+    st.info("No executions have been recorded yet. Run the tests first.")
     st.stop()
 
 # --------------------------------------------------------
@@ -93,11 +89,10 @@ st.subheader("🕒 Latest Execution")
 
 st.json(history[-1])
 
-with open(HISTORY_FILE, "rb") as f:
-    st.download_button(
-        "⬇ Download History (JSON)",
-        data=f,
-        file_name="history.json",
-        mime="application/json",
-        use_container_width=True
-    )
+st.download_button(
+    "⬇ Download History (JSON)",
+    data=json.dumps(history, indent=2),
+    file_name="history.json",
+    mime="application/json",
+    use_container_width=True
+)

@@ -1,0 +1,29 @@
+# Render Blueprint — deploys both services from this repo.
+# In the Render dashboard: New + → Blueprint → select this repo.
+
+services:
+
+  - type: web
+    name: aiqa-backend
+    runtime: docker
+    dockerfilePath: ./Dockerfile.backend
+    plan: free
+    healthCheckPath: /
+    envVars:
+      - key: GROQ_API_KEY
+        sync: false          # you will be prompted to enter this
+      - key: MODEL_NAME
+        value: llama-3.3-70b-versatile
+      - key: TEST_USERNAME
+        sync: false
+      - key: TEST_PASSWORD
+        sync: false
+
+  - type: web
+    name: aiqa-frontend
+    runtime: docker
+    dockerfilePath: ./Dockerfile.frontend
+    plan: free
+    envVars:
+      - key: BACKEND_URL
+        value: https://aiqa-backend.onrender.com
